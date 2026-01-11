@@ -14,9 +14,11 @@ const unsigned long BEACON_DURATION = 30000;
 #define GREEN_MAX 35
 #define YELLOW 5
 #define CYCLE_TOTAL 55
-#define MIN_RED_TIME 5
+#define MIN_RED_TIME 10
 
-const int signalPins[LANES] = {27, 32, 33, 0};
+const int redPins[LANES] = {4, 5, 25, 14};
+const int yellowPins[LANES] = {16, 18, 26, 12};
+const int greenPins[LANES] = {17, 19, 27, 21};
 
 /* ===================== STATE ===================== */
 enum {GREEN, YELLOW1, RED, YELLOW2};
@@ -33,15 +35,15 @@ const unsigned long DATA_TIMEOUT = 10000;
 static bool decisionReceivedForThisCycle = false;
 static unsigned long cycleEndTime = 0;
 
-// ✅ منع طلب CYCLE_OBS متكرر
+
 static bool cycleRequestPending = false;
 static unsigned long cycleObsRequestedAt = 0;
 
-// ✅ متغير لإرسال PING دوري
+// ping
 static unsigned long lastPingSent = 0;
-const unsigned long PING_INTERVAL = 2500;  // 2.5 ثانية
+const unsigned long PING_INTERVAL = 2500;  
 
-// ✅ متغيرات مؤجلة لتطبيق البيكون في الدورة القادمة
+
 static bool pendingBeacon = false;
 static int pendingBeaconLane = -1;
 
@@ -54,7 +56,7 @@ void updateLights(){
       stageStart[l] = now;
     }
 
-    // ✅ إرسال حالة المرحلة (PHASE) فقط عند تغيّرها
+    // cycle state
     static int lastReportedPhase[LANES] = {-1, -1, -1, -1};
     if (stageIndex[l] != lastReportedPhase[l]) {
       Serial.print("PHASE:");
@@ -64,7 +66,7 @@ void updateLights(){
       lastReportedPhase[l] = stageIndex[l];
     }
 
-    // ✅ حساب الوقت الحالي في الدورة (0-55s) وإرساله
+    // send current 
     unsigned long totalCycleTime = 0;
     for(int i = 0; i < 4; i++) {
       totalCycleTime += stageDurations[l][i] * 1000;
@@ -73,7 +75,7 @@ void updateLights(){
     unsigned long elapsedInStage = now - stageStart[l];
     unsigned long currentCycleTime = 0;
     
-    // حساب الوقت في الدورة من بداية الدورة الحالية
+    // current time
     for(int i = 0; i <= stageIndex[l]; i++) {
       if(i == stageIndex[l]) {
         currentCycleTime += elapsedInStage;
@@ -92,7 +94,7 @@ void updateLights(){
       lastReportedCycleTime[l] = cycleSec;
     }
 
-    // ✅ طلب مرة واحدة فقط من lane 0 (قبل نهاية RED بـ 2s)
+   
     if(l == 0 && stageIndex[l] == RED && !cycleRequestPending && !beaconDetected) {
       unsigned long elapsed = now - stageStart[l];
       unsigned long redDurationMs = stageDurations[l][RED] * 1000;
@@ -104,12 +106,22 @@ void updateLights(){
     }
 
     switch(stageIndex[l]){
-      case GREEN: digitalWrite(signalPins[l], LOW); break;
-      case RED: digitalWrite(signalPins[l], HIGH); break;
+      case GREEN:
+        digitalWrite(redPins[l], LOW);
+        digitalWrite(yellowPins[l], LOW);
+        digitalWrite(greenPins[l], HIGH);
+        break;
+      case RED:
+        digitalWrite(redPins[l], HIGH);
+        digitalWrite(yellowPins[l], LOW);
+        digitalWrite(greenPins[l], LOW);
+        break;
       case YELLOW1:
       case YELLOW2:
-        if((millis() / 75) % 2 == 0) digitalWrite(signalPins[l], HIGH);
-        else digitalWrite(signalPins[l], LOW);
+        digitalWrite(redPins[l], LOW);
+        digitalWrite(greenPins[l], LOW);
+        if((millis() / 75) % 2 == 0) digitalWrite(yellowPins[l], HIGH);
+        else digitalWrite(yellowPins[l], LOW);
         break;
     }
   }
@@ -132,19 +144,19 @@ void applyPendingBeaconIfAny() {
   int otherLane = (lane == sysBase) ? sysBase + 1 : sysBase;
   int otherSysBase = (sysBase == 0) ? 2 : 0;
 
-  // Lane المختار
+  // the chosen lane
   stageDurations[lane][GREEN] = 35;
   stageDurations[lane][YELLOW1] = YELLOW;
   stageDurations[lane][RED] = 10;
   stageDurations[lane][YELLOW2] = YELLOW;
 
-  // الـ Lane الثاني في نفس النظام
+  // the second lane
   stageDurations[otherLane][GREEN] = 25;
   stageDurations[otherLane][YELLOW1] = YELLOW;
   stageDurations[otherLane][RED] = 20;
   stageDurations[otherLane][YELLOW2] = YELLOW;
 
-  // النظام الآخر: يحتفظ بقيم nextGreen (من الـ AI)
+  // the other system
   for (int i = 0; i < 2; i++) {
     int l = otherSysBase + i;
     int safe_green = nextGreen[l];
@@ -323,7 +335,9 @@ void setup(){
   SerialBT.begin("ESP32_Beacon_Receiver");
   
   for(int i = 0; i < LANES; i++){
-    pinMode(signalPins[i], OUTPUT);
+    pinMode(redPins[i], OUTPUT);
+    pinMode(yellowPins[i], OUTPUT);
+    pinMode(greenPins[i], OUTPUT);
     stageIndex[i] = 0;
     stageStart[i] = millis();
     stageDurations[i][GREEN] = 30;
@@ -344,41 +358,41 @@ void loop(){
   static unsigned long lastAppliedCycleStart = 0;
   unsigned long now = millis();
   
-  // ✅ تحقق من بداية دورة جديدة (أول 100ms من GREEN)
+ 
   for(int l = 0; l < LANES; l++) {
     if(stageIndex[l] == GREEN && (now - stageStart[l]) < 100) {
       if (stageStart[l] != lastAppliedCycleStart) {
-        // ✅ تطبيق البيكون المؤجل أولًا (لو موجود)
+       
         if (pendingBeacon) {
           applyPendingBeaconIfAny();
           decisionReceivedForThisCycle = true;
         }
         
-        // تطبيق FALLBACK لو مفيش قرار وصل
+        
         if(!decisionReceivedForThisCycle) {
           applyDefaultTiming();
           Serial.println("FALLBACK: default cycle applied");
         }
         
-        // إرسال الأوقات الجديدة مرة واحدة
+        
         sendAppliedCycleOncePerCycle();
         
-        // تسجيل الدورة الحالية
+       
         lastAppliedCycleStart = stageStart[l];
         decisionReceivedForThisCycle = false;
       }
-      break; // كفاية مع أول lane
+      break; 
     }
   }
 
-  // fallback عام لو انقطع الاتصال كليًا
+
   if(now - lastDataReceivedTime > DATA_TIMEOUT && !beaconDetected){
     applyDefaultTiming();
   }
   
   updateLights();
   readController();
-  checkBeaconTimeout(); // فقط للتحقق من انتهاء البيكون
+  checkBeaconTimeout(); 
   checkCycleObsTimeout();
   sendPing();
 }

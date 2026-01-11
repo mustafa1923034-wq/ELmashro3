@@ -7,7 +7,7 @@
 #define DENSITY_SEND_CYCLES 3
 #define SENSOR_DELAY_MS 25    // Delay between sensors to prevent crosstalk
 
-const int trigPins[SENSORS] = {2, 4, 6, 8, 10, 12, 11, 13};
+const int trigPins[SENSORS] = {2, 4, 6, 8, 10, 11, 12, 13};
 const int echoPins[SENSORS] = {3, 5, 7, 9, A0, A1, A2, A3};
 
 /* ===================== STATE ===================== */
@@ -89,14 +89,14 @@ void scanNextSensor() {
   } else if (dist > FREE_DIST || dist == -1) {
     occupied = false;
   }
-  // If 20 <= dist <= 30 → do nothing (keep previous 'occupied' state)
+  // If 20 <= dist <= 30 → do nothing
 
   lastOccupied[i] = occupied;
   sensorIndex = (sensorIndex + 1) % SENSORS;
   lastScanTime = millis();
 }
 
-// Update densities for all lanes (safe)
+// Update densities for all lanes 
 void updateDensities() {
   for (int l = 0; l < LANES; l++) {
     if (total_entered[l] < 0) total_entered[l] = 0;
@@ -203,7 +203,7 @@ void loop() {
   }
 
   static unsigned long lastDensitySend = 0;
-  // ✅ تقليل الوقت من 3000ms إلى 1500ms لسرعة التحديث
+  
   if (now - lastDensitySend > 1500) {
     cycleCounter++;
     if (cycleCounter >= DENSITY_SEND_CYCLES) {
